@@ -79,6 +79,17 @@ function tryJson(s) {
   try { return JSON.parse(s); } catch (e) { return s; }
 }
 
+/* 把代理失败的原因拼进提示，方便定位是地址/端口/网络问题 */
+function detailErr(action, baseURL, err) {
+  const map = {
+    ECONNREFUSED: '端口无服务（后端没启动，或端口/地址不对）',
+    ETIMEDOUT: '连接超时（内网不通或防火墙拦截）',
+    ENOTFOUND: '主机名无法解析',
+    EHOSTUNREACH: '主机不可达（IP/网段不通）',
+  };
+  return `${action}失败：目标 ${baseURL}（${err.code || ''} ${err.message}）${map[err.code] ? ' —— ' + map[err.code] : ''}`;
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -99,7 +110,7 @@ const server = http.createServer((req, res) => {
       proxy('/api/auth/login', { baseURL: body.baseURL }, {
         username: body.username, password: body.password,
       }, (err, code, data) => {
-        if (err) return sendJson(res, 502, { ok: false, message: '连接后端失败: ' + err.message, code: null });
+        if (err) return sendJson(res, 502, { ok: false, message: detailErr('登录', body.baseURL, err), code: null });
         sendJson(res, code, { ok: String(code).startsWith('2') && !/error/i.test((data || '').slice(0, 200)), code, data: tryJson(data) });
       });
     });
@@ -113,7 +124,7 @@ const server = http.createServer((req, res) => {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + (body.token || '').trim() },
       }, body.payload, (err, code, data) => {
-        if (err) return sendJson(res, 502, { ok: false, message: err.message, code: null });
+        if (err) return sendJson(res, 502, { ok: false, message: detailErr('上报', body.baseURL, err), code: null });
         sendJson(res, code, { ok: String(code).startsWith('2'), code, data: tryJson(data) });
       });
     });
