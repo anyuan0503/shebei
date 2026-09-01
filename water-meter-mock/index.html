@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>模拟水表 · 水务监测系统</title>
+<style>
+  :root{
+    --bg:#eef3f6; --surface:#ffffff; --surface2:#f6f9fb;
+    --border:#dfe7ec; --border2:#cbd8df;
+    --text:#16262e; --weak:#5d6d76; --faint:#8fa0a9;
+    --brand:#0a7d8c; --brand-ink:#0d3b4a; --brand-soft:#e3f1f4;
+    --ok:#0f8a5f; --ok-soft:#e5f2ec; --err:#cf3f3f; --err-soft:#fbeaea;
+    --warn:#b4760a; --warn-soft:#fbf3e3;
+    --radius:12px; --shadow:0 1px 2px rgba(13,59,74,.05),0 6px 18px -8px rgba(13,59,74,.14);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.5; min-height:100vh;
+  }
+
+  /* ===== 顶栏 ===== */
+  .topbar{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:14px 22px;
+    background:linear-gradient(120deg,var(--brand-ink) 0%,#0a5c6e 55%,var(--brand) 100%);
+    color:#fff;
+  }
+  .brand{display:flex; align-items:center; gap:10px; margin-right:auto}
+  .brand svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
+  .brand .title{font-size:17px; font-weight:700; letter-spacing:.2px}
+  .brand .sub{font-size:11px; opacity:.85; margin-top:1px}
+  .conn-status{
+    display:inline-flex; align-items:center; gap:6px; font-size:12px;
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22);
+    padding:5px 10px; border-radius:999px; white-space:nowrap;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:#9aa9b1}
+  .conn-status.online .dot{background:#5ee6a6; box-shadow:0 0 0 3px rgba(94,230,166,.2)}
+  .conn-status.offline .dot{background:#ff9b9b}
+  .conn-status .txt{font-weight:600}
+
+  /* ===== 布局 ===== */
+  .wrap{max-width:1180px; margin:20px auto 60px; padding:0 18px; display:grid; gap:16px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media (max-width:920px){ .grid2{grid-template-columns:1fr} }
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+        box-shadow:var(--shadow); overflow:hidden}
+  .card-hd{display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--surface2)}
+  .card-hd .kick{font-weight:700; font-size:14px; letter-spacing:.2px}
+  .card-hd .desc{font-size:12px; color:var(--weak)}
+  .card-hd .right{margin-left:auto; display:flex; gap:8px; align-items:center}
+  .card-bd{padding:16px}
+
+  h3.kick{margin:0; font-size:14px}
+
+  /* ===== 表单 ===== */
+  .frow{display:grid; gap:6px; margin-bottom:12px}
+  label.lbl{font-size:12px; color:var(--weak); font-weight:600}
+  input,select,textarea{
+    width:100%; font:inherit; color:var(--text);
+    background:#fff; border:1px solid var(--border2); border-radius:8px; padding:7px 9px;
+  }
+  input:focus,select:focus,textarea:focus{outline:none; border-color:var(--brand); box-shadow:0 0 0 3px rgba(10,125,140,.14)}
+  textarea{font-family:var(--mono); font-size:12px; resize:vertical; min-height:120px}
+  .inline{display:flex; align-items:center; gap:8px}
+  .inline input[type=number]{width:96px}
+  .inline input[type=datetime-local]{flex:1}
+  .muted{color:var(--faint); font-size:11px; line-height:1.4}
+
+  .check{display:flex; align-items:center; gap:7px; cursor:pointer; font-size:13px; color:var(--text); user-select:none}
+  .check input{width:auto}
+
+  .btn{
+    border:1px solid var(--border2); background:#fff; color:var(--text);
+    border-radius:8px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer;
+    transition:background .12s,border-color .12s,transform .04s;
+  }
+  .btn:hover{background:var(--surface2)}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  .btn.primary{background:var(--brand); border-color:var(--brand); color:#fff}
+  .btn.primary:hover{background:#096a78}
+  .btn.ok{background:var(--ok); border-color:var(--ok); color:#fff}
+  .btn.ok:hover{background:#0c7a54}
+  .btn.ghost{border-color:transparent; background:transparent; color:var(--weak)}
+  .btn.ghost:hover{background:var(--surface2); color:var(--text)}
+  .btn.sm{padding:5px 10px; font-size:12px}
+
+  .pill{font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; display:inline-flex; align-items:center; gap:4px}
+  .pill.good{background:var(--ok-soft); color:var(--ok)}
+  .pill.bad{background:var(--err-soft); color:var(--err)}
+  .pill.info{background:var(--brand-soft); color:var(--brand-ink)}
+
+  /* ===== 字段表 ===== */
+  .field-grid{display:grid; gap:8px}
+  field-head{display:contents}
+  .frow2{display:grid; grid-template-columns:150px 1fr auto; gap:10px; align-items:center; padding:7px 10px; border:1px solid var(--border); border-radius:9px; background:#fff}
+  .frow2:hover{border-color:var(--border2)}
+  .fname{font-size:13px; font-weight:700}
+  .fname .unit{color:var(--faint); font-weight:500; font-size:11px; margin-left:4px}
+  .fcontrols{display:flex; align-items:center; gap:10px}
+  .fcontrols .static{flex:1}
+  .fcontrols .range{display:none; align-items:center; gap:8px; flex:1}
+  .fcontrols .range input{width:100%}
+  .fcontrols .range .sep{color:var(--faint); font-size:12px}
+  .frow2.rnd .fcontrols .static{display:none}
+  .frow2.rnd .fcontrols .range{display:flex}
+  .rnd-toggle input{width:auto}
+
+  /* ===== 日志 ===== */
+  .log-wrap{max-height:320px; overflow:auto}
+  .log{display:grid; grid-template-columns:150px 120px 1fr auto; gap:10px; align-items:start;
+       padding:7px 12px; border-top:1px solid var(--border); font-size:12px}
+  .log:first-child{border-top:none}
+  .log .time{color:var(--faint); font-family:var(--mono)}
+  .log .lbl{font-weight:600}
+  .log .summ{color:var(--weak); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .log .resp{color:var(--faint); font-family:var(--mono); font-size:11px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .empty{padding:26px; text-align:center; color:var(--faint); font-size:13px}
+
+  .bar{height:6px; background:var(--surface2); border:1px solid var(--border); border-radius:999px; overflow:hidden}
+  .bar > i{display:block; height:100%; width:0; background:var(--brand); transition:width .15s}
+  .stat-line{display:flex; gap:14px; font-size:12px; color:var(--weak); align-items:center}
+  .stat-line b{font-size:14px}
+  .stat-line .ok{color:var(--ok)} .stat-line .err{color:var(--err)}
+
+  pre.out{background:#0d2a33; color:#cfe9f0; padding:12px; border-radius:9px; font-family:var(--mono);
+          font-size:11.5px; overflow:auto; max-height:240px; white-space:pre-wrap; word-break:break-all}
+  .toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:var(--brand-ink);
+         color:#fff; padding:10px 18px; border-radius:999px; font-size:13px; box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99; opacity:0; pointer-events:none; transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{background:var(--err)}
+  .sep{border:none; border-top:1px solid var(--border); margin:14px 0}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2c3.5 4.2 6 7.2 6 10.5A6 6 0 0 1 6 12.5C6 9.2 8.5 6.2 12 2Z" fill="#8fe0f0"/>
+      <path d="M10 13.5a2.4 2.4 0 0 0 1.5 2.2" stroke="#0a5c6e" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <div class="title">模拟水表</div>
+      <div class="sub">水务监测系统 · 数据演示工具</div>
+    </div>
+  </div>
+  <div class="conn-status offline" id="connStatus">
+    <span class="dot"></span><span class="txt" id="connTxt">未连接</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- 连接配置 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="kick">连接配置</span>
+      <span class="desc">填你的后端地址并用系统账号登录，登录后即可上报数据</span>
+      <div class="right">
+        <span style="font-size:12px;color:var(--weak)" id="tokenState">未登录</span>
+      </div>
+    </div>
+    <div class="card-bd">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:12px" id="connRow">
+        <div class="frow">
+          <label class="lbl">后端地址</label>
+          <input id="inBase" placeholder="http://127.0.0.1:8080" value="http://127.0.0.1:8080" />
+          <div class="muted">你系统 Spring Boot 后端地址（IP:8080 或域名）</div>
+        </div>
+        <div class="frow">
+          <label class="lbl">账号</label>
+          <input id="inUser" placeholder="admin" value="admin" />
+        </div>
+        <div class="frow">
+          <label class="lbl">密码</label>
+          <input id="inPass" type="password" placeholder="123456" value="123456" />
+        </div>
+        <div class="frow" style="justify-content:flex-end">
+          <label class="lbl" style="visibility:hidden">.</label>
+          <button class="btn primary" id="btnLogin">登录</button>
+          <button class="btn" id="btnLogout" style="display:none">登出</button>
+        </div>
+      </div>
+      <div class="inline" style="margin-top:4px">
+        <button class="btn sm" id="btnLoadDevices">拉取设备列表</button>
+        <input id="inDevPath" style="width:220px" placeholder="设备接口路径 /api/device" value="/api/device" />
+        <span class="muted">可选：若接口得到数组会自动填充下方设备号；拉不到就手动填设备号</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据生成器 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="kick">数据生成器</span>
+      <span class="desc">每个指标可固定值或用区间随机模拟</span>
+      <div class="right">
+        <button class="btn sm" id="btnAllRand">全部随机</button>
+        <button class="btn sm" id="btnAllFixed">全部固定</button>
+      </div>
+    </div>
+    <div class="card-bd">
+      <!-- 设备 + 时间 -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px">
+        <div class="frow">
+          <label class="lbl">设备 ID</label>
+          <input id="devIds" placeholder="单个：101；批量轮询：101,102,103" />
+          <div class="muted">对应接口 deviceId(Long)。单条取第一个；批量按逗号分隔轮流上报</div>
+        </div>
+        <div class="frow">
+          <label class="lbl">数据时间 dataTime</label>
+          <div class="inline">
+            <label class="check"><input type="checkbox" id="useNow" checked /> 用当前时间</label>
+            <input type="datetime-local" id="dtFixed" style="display:none" />
+          </div>
+          <div class="muted">未勾选当前时间时使用右侧指定时间；批量会按“时间步长”递增</div>
+        </div>
+      </div>
+      <hr class="sep" />
+      <!-- 指标字段容器 -->
+      <div class="field-grid" id="fieldList"></div>
+    </div>
+  </div>
+
+  <!-- 单条 / 批量 -->
+  <div class="grid2">
+    <!-- 单条发送 -->
+    <div class="card">
+      <div class="card-hd">
+        <span class="kick">单条发送</span>
+        <span class="desc">立即用上方字段生成一条并上报</span>
+      </div>
+      <div class="card-bd">
+        <button class="btn ok" id="btnSendOne" style="width:100%; padding:11px">发送一条数据</button>
+        <div class="inline" style="margin-top:12px">
+          <label class="check"><input type="checkbox" id="useRaw" /> 用原始 JSON 发送</label>
+        </div>
+        <textarea id="rawJson" style="display:none" placeholder='在此粘贴或编辑要发送的整个 JSON（会原样上报到 /api/monitor/data）'></textarea>
+        <div class="stat-line" style="margin-top:12px">
+          <span>返回</span><span class="pill info" id="oneCode">-</span>
+        </div>
+        <pre class="out" id="oneOut" style="margin-top:8px">尚未发送</pre>
+      </div>
+    </div>
+
+    <!-- 批量发送 -->
+    <div class="card">
+      <div class="card-hd">
+        <span class="kick">批量模拟</span>
+        <span class="desc">持续生成并按设定间隔上报</span>
+        <div class="right" style="margin-left:auto">
+          <button class="btn" id="btnStop" style="display:none">停止</button>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px">
+          <div class="frow"><label class="lbl">条数</label><input type="number" id="bCount" value="20" min="1" /></div>
+          <div class="frow"><label class="lbl">间隔 (ms)</label><input type="number" id="bInterval" value="1000" min="0" /></div>
+          <div class="frow"><label class="lbl">时间步长 (s)</label><input type="number" id="bStep" value="30" min="0" /></div>
+        </div>
+        <button class="btn primary" id="btnSendBatch" style="width:100%; margin-top:12px; padding:11px">开始批量发送</button>
+        <div class="bar" style="margin-top:14px"><i id="bBar"></i></div>
+        <div class="stat-line" style="margin-top:8px">
+          <span>进度 <b id="bDone">0</b>/<b id="bTotal">0</b></span>
+          <span>成功 <b class="ok" id="bOk">0</b></span>
+          <span>失败 <b class="err" id="bFail">0</b></span>
+          <span id="bState" style="margin-left:auto"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="card">
+    <div class="card-hd">
+      <span class="kick">发送日志</span>
+      <span class="desc">每一条请求的发送结果</span>
+      <div class="right"><button class="btn sm" id="btnClear">清空</button></div>
+    </div>
+    <div class="log-wrap" id="logList">
+      <div class="empty">暂无发送记录</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 字段定义 ================= */
+const FIELDS = [
+  { key:'pressure',    label:'压力',        unit:'MPa',  min:0.10, max:0.45, dec:2 },
+  { key:'flow',        label:'流量（水表读数）', unit:'m³/h', min:0, max:80, dec:1 },
+  { key:'ph',          label:'pH',          unit:'',     min:6.5, max:8.5,  dec:1 },
+  { key:'turbidity',   label:'浊度',        unit:'NTU',  min:0.1, max:5.0,  dec:2 },
+  { key:'residualCl',  label:'余氯',        unit:'mg/L', min:0.2, max:1.2,  dec:2 },
+  { key:'temperature', label:'温度',        unit:'°C',   min:15,  max:28,   dec:1 },
+  { key:'level',       label:'液位',        unit:'m',    min:0,   max:5.0,  dec:2 },
+];
+
+const $ = (id) => document.getElementById(id);
+const rows = {};   // key -> {rand,val,min,max,dec,rowEl}
+
+/* ================= 渲染字段 ================= */
+function renderFields(){
+  const box = $('fieldList');
+  box.innerHTML = '';
+  FIELDS.forEach(f => {
+    const r = document.createElement('div');
+    r.className = 'frow2 rnd';
+    r.innerHTML = `
+      <div class="fname">${f.label}<span class="unit">${f.unit}</span></div>
+      <div class="fcontrols">
+        <div class="static"><input type="text" data-v value="" placeholder="固定值" /></div>
+        <div class="range">
+          <input type="number" data-min value="${f.min}" /> <span class="sep">~</span>
+          <input type="number" data-max value="${f.max}" />
+        </div>
+      </div>
+      <label class="check rnd-toggle"><input type="checkbox" data-rnd checked /> 随机</label>`;
+    box.appendChild(r);
+    rows[f.key] = {
+      rand: r.querySelector('[data-rnd]'),
+      val:  r.querySelector('[data-v]'),
+      min:  r.querySelector('[data-min]'),
+      max:  r.querySelector('[data-max]'),
+      rowEl: r, dec: f.dec,
+    };
+    rows[f.key].rand.addEventListener('change', () => {
+      r.classList.toggle('rnd', rows[f.key].rand.checked);
+    });
+  });
+}
+
+function allRand(){ FIELDS.forEach(f => { rows[f.key].rand.checked = true; rows[f.key].rowEl.classList.add('rnd'); }); }
+function allFixed(){ FIELDS.forEach(f => { rows[f.key].rand.checked = false; rows[f.key].rowEl.classList.remove('rnd'); }); }
+
+/* ================= 工具函数 ================= */
+function rand(min,max){ return min + Math.random()*(max-min); }
+function round(v,dec){ const p = Math.pow(10,dec); return Math.round(v*p)/p; }
+function fmtDT(d){
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function parseDevices(){
+  return $('devIds').value.split(/[,，\s]+/).map(s=>s.trim()).filter(Boolean);
+}
+function fieldValue(key){
+  const r = rows[key];
+  if (r.rand.checked) return round(rand(parseFloat(r.min.value)||0, parseFloat(r.max.value)||0), r.dec);
+  const v = parseFloat(r.val.value);
+  return isNaN(v) ? null : v;
+}
+
+/* ================= 构建 / 发送 ================= */
+function buildPayload(deviceId, dt){
+  const payload = { deviceId: Number(deviceId), dataTime: dt };
+  FIELDS.forEach(f => {
+    const v = fieldValue(f.key);
+    if (v !== null) payload[f.key] = v;
+  });
+  return payload;
+}
+
+function jsonShort(o){
+  const s = JSON.stringify(o);
+  return s.length > 160 ? s.slice(0,160) + '…' : s;
+}
+
+let toastTimer;
+function toast(msg, isErr){
+  const t = $('toast'); t.textContent = msg; t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+/* ---- 发送核心（调本工具代理 -> 真实后端） ---- */
+async function doSend(payload, tag, action){
+  const baseURL = $('inBase').value.trim();
+  if (!baseURL) { toast('请先填写后端地址', true); throw new Error('no-base'); }
+  const token = localStorage.getItem('wm_token') || '';
+  addLog(new Date(), (action||'发送')+(tag?' · '+tag:''), jsonShort(payload));
+  updateConn(null);
+  try {
+    const res = await fetch('/api/mock/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ baseURL, token, payload }),
+    });
+    const j = await res.json();
+    markLogLast(res.ok, res.status, j.data);
+    if (res.ok && j.ok) updateConn(true); else updateConn(false);
+    return { ok: res.ok && j.ok, status: res.status, data: j.data };
+  } catch (e) {
+    markLogLast(false, null, String(e && e.message || e));
+    updateConn(false);
+    return { ok:false, status:null, data: String(e && e.message || e) };
+  }
+}
+
+/* ================= 单条 ================= */
+$('btnSendOne').addEventListener('click', async () => {
+  const useRaw = $('useRaw').checked;
+  let payload;
+  if (useRaw) {
+    const raw = $('rawJson').value.trim();
+    if (!raw) return toast('请先粘贴原始 JSON', true);
+    try { payload = JSON.parse(raw); }
+    catch(e){ return toast('JSON 解析失败', true); }
+  } else {
+    const dev = parseDevices()[0];
+    if (!dev) return toast('请先填写设备 ID', true);
+    const dt = currentDT();
+    payload = buildPayload(dev, dt);
+  }
+  $('oneOut').textContent = '发送中…';
+  const r = await doSend(payload, null, '手动');
+  $('oneCode').textContent = r.status ? (r.ok ? 'HTTP '+r.status+' 成功' : 'HTTP '+r.status) : '失败';
+  $('oneCode').className = 'pill ' + (r.ok ? 'good' : 'bad');
+  $('oneOut').textContent = pretty(r.data);
+});
+
+function currentDT(){
+  if ($('useNow').checked) return fmtDT(new Date());
+  return $('dtFixed').value; // yyyy-MM-ddTHH:mm
+}
+
+function pretty(o){ return typeof o === 'string' ? o : JSON.stringify(o, null, 2); }
+
+/* ================= 批量 ================= */
+let batchTimer = null, batchRunning = false, batchCount = 0;
+
+function stopBatch(){
+  batchRunning = false;
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+  if (batchCount > 0) setState('已停止');
+}
+
+$('btnSendBatch').addEventListener('click', () => {
+  const devs = parseDevices();
+  if (!devs.length) return toast('请先填写设备 ID', true);
+  const N = Math.max(1, parseInt($('bCount').value) || 1);
+  const iv = Math.max(0, parseInt($('bInterval').value) || 0);
+  const stepSec = Math.max(0, parseInt($('bStep').value) || 0);
+  const useNow = $('useNow').checked;
+  const baseDT = useNow ? new Date() : (()=>{ try{return new Date($('dtFixed').value);}catch(e){return new Date();} })();
+
+  batchRunning = true; batchCount = 0;
+  const okCount = 0, failCount = 0;
+  $('bBar').style.width = '0%'; $('bDone').textContent = 0; $('bTotal').textContent = N;
+  $('bOk').textContent = 0; $('bFail').textContent = 0;
+  setState('发送中');
+  $('btnSendBatch').style.display = 'none'; $('btnStop').style.display = '';
+
+  let i = 0;
+  function tick(){
+    if (!batchRunning) return;
+    if (i >= N){ return finish(); }
+    const dev = devs[i % devs.length];
+    const dt = useNow ? fmtDT(new Date(baseDT.getTime() + i*stepSec*1000))
+                      : fmtDT(new Date((baseDT||new Date()).getTime() + i*stepSec*1000));
+    const payload = buildPayload(dev, dt);
+    const idx = ++batchCount;
+    doSend(payload, '批量#' + idx, '批量').then(r => {
+      $('bDone').textContent = idx;
+      if (r.ok){ $('bOk').textContent = (+$('bOk').textContent)+1; } else { $('bFail').textContent = (+$('bFail').textContent)+1; }
+      $('bBar').style.width = Math.round(idx/N*100) + '%';
+      if (batchRunning && i < N){
+        i++; batchTimer = setTimeout(tick, iv);
+      }
+      if (i >= N && batchRunning) finish();
+    });
+    i++;
+  }
+  function finish(){
+    batchRunning = false; setState('完成');
+    $('btnSendBatch').style.display = ''; $('btnStop').style.display = 'none';
+  }
+  tick();
+});
+
+$('btnStop').addEventListener('click', stopBatch);
+
+function setState(s){
+  $('bState').textContent = s;
+}
+
+/* ================= 日志 ================= */
+const LOGS_MAX = 200;
+let logsEl = $('logList');
+
+function addLog(time, label, summ){
+  const row = document.createElement('div');
+  row.className = 'log';
+  row.dataset.ok = '';
+  row.innerHTML = `
+    <span class="time">${fmtDT(time)}</span>
+    <span class="lbl">${escapeHtml(label)}</span>
+    <span class="summ">${escapeHtml(summ)}</span>
+    <span class="resp">发送中…</span>`;
+  if (logsEl.querySelector('.empty')) logsEl.innerHTML = '';
+  logsEl.prepend(row);
+  while (logsEl.children.length > LOGS_MAX) logsEl.removeChild(logsEl.lastChild);
+  lastLogRow = row;
+}
+function markLogLast(ok, code, respText){
+  if (!lastLogRow) return;
+  const resp = typeof respText === 'string' ? respText : JSON.stringify(respText);
+  lastLogRow.querySelector('.resp').textContent = (code!=null ? 'HTTP '+code+' · ' : '') + resp;
+  lastLogRow.querySelector('.resp').style.color = ok ? 'var(--ok)' : 'var(--err)';
+}
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+$('btnClear').addEventListener('click', () => {
+  logsEl.innerHTML = '<div class="empty">暂无发送记录</div>'; lastLogRow = null;
+});
+
+/* ================= 登录 / 连接 ================= */
+function updateConn(online){
+  const el = $('connStatus');
+  if (online === true){ el.className='conn-status online'; $('connTxt').textContent='已连接 '+$('inBase').value; }
+  else if (online === false){ el.className='conn-status offline'; $('connTxt').textContent='连接失败'; }
+  else {
+    const hasToken = !!localStorage.getItem('wm_token');
+    if (hasToken){ el.className='conn-status online'; $('connTxt').textContent='已登录'; }
+    else { el.className='conn-status offline'; $('connTxt').textContent='未连接'; }
+  }
+  renderTokenState();
+}
+function renderTokenState(){
+  const t = localStorage.getItem('wm_token');
+  $('tokenState').textContent = t ? '已登录 ✓' : '未登录';
+  $('btnLogin').style.display = t ? 'none' : '';
+  $('btnLogout').style.display = t ? '' : 'none';
+}
+
+$('btnLogin').addEventListener('click', async () => {
+  const baseURL = $('inBase').value.trim();
+  if (!baseURL) return toast('请填写后端地址', true);
+  const btn = $('btnLogin'); btn.disabled = true; btn.textContent = '登录中…';
+  try {
+    const res = await fetch('/api/mock/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ baseURL, username: $('inUser').value, password: $('inPass').value }),
+    });
+    const j = await res.json();
+    if (res.ok && j.ok && j.data && j.data.token){
+      localStorage.setItem('wm_token', j.data.token);
+      updateConn(true); toast('登录成功');
+    } else {
+      const msg = (j.data && (j.data.message || j.data.msg)) || ('HTTP '+res.status);
+      updateConn(false); toast('登录失败：'+ msg, true);
+    }
+  } catch(e){
+    updateConn(false); toast('连接后端失败：'+e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = '登录';
+  }
+});
+
+$('btnLogout').addEventListener('click', () => {
+  localStorage.removeItem('wm_token');
+  updateConn(null); toast('已登出');
+});
+
+/* ================= 设备列表 ================= */
+$('btnLoadDevices').addEventListener('click', async () => {
+  const baseURL = $('inBase').value.trim();
+  const token = localStorage.getItem('wm_token') || '';
+  const devPath = $('inDevPath').value.trim() || '/api/device';
+  if (!baseURL) return toast('请先填写后端地址', true);
+  const btn = $('btnLoadDevices'); btn.disabled = true; btn.textContent = '加载中…';
+  try {
+    const res = await fetch('/api/mock/devices?baseURL='+encodeURIComponent(baseURL)+'&token='+encodeURIComponent(token)+'&devicesPath='+encodeURIComponent(devPath));
+    const j = await res.json();
+    const list = extractDevices(j.data);
+    if (list.length){
+      $('devIds').value = list.join(', ');
+      toast('已填充设备号：'+list.join(', '));
+    } else {
+      toast('未解析到设备号（HTTP '+res.status+'），请手动填写', true);
+    }
+  } catch(e){ toast('加载失败：'+e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '拉取设备列表'; }
+});
+function extractDevices(data){
+  const arr = data && data.data ? (data.data instanceof Array ? data.data : null) : (data instanceof Array ? data : null);
+  if (!arr) return [];
+  const ids = [];
+  arr.forEach(it => {
+    for (const k of ['deviceId','device_id','id','deviceId.value'])
+      if (it && it[k] != null) { ids.push(String(it[k])); break; }
+  });
+  return ids;
+}
+
+/* ================= 初始 ================= */
+// 恢复配置
+const savedBase = localStorage.getItem('wm_baseURL');
+if (savedBase) $('inBase').value = savedBase;
+$('inBase').addEventListener('change', () => localStorage.setItem('wm_baseURL', $('inBase').value.trim()));
+
+$('useNow').addEventListener('change', () => {
+  $('dtFixed').style.display = $('useNow').checked ? 'none' : '';
+});
+$('useRaw').addEventListener('change', () => {
+  $('rawJson').style.display = $('useRaw').checked ? '' : 'none';
+});
+
+renderFields();
+updateConn(null);
+</script>
+</body>
+</html>

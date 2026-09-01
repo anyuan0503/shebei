@@ -1,0 +1,238 @@
+
+import com.water.security.JwtAuthFilter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
+
+/**
+ * Spring Security 配置
+ */
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/auth/login", "/ws/**").permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .anyRequest().authenticated())
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        // 允许任意来源（同节点 Nginx 同源代理 + 内网 IP/多端口访问），配合 allowCredentials 时反射来源
+        config.setAllowedOriginPatterns(List.of("*"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+}
+=== JwtAuthFilter.java ===
+package com.water.security;
+
+import com.water.common.constants.CommonConstants;
+import io.jsonwebtoken.Claims;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+/**
+ * JWT 认证过滤器
+ */
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private final JwtUtil jwtUtil;
+    private final UserDetailsServiceImpl userDetailsService;
+
+    public JwtAuthFilter(JwtUtil jwtUtil, UserDetailsServiceImpl userDetailsService) {
+        this.jwtUtil = jwtUtil;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
+        String header = request.getHeader(CommonConstants.TOKEN_HEADER);
+        String token = null;
+        if (StringUtils.hasText(header) && header.startsWith(CommonConstants.TOKEN_PREFIX)) {
+            token = header.substring(CommonConstants.TOKEN_PREFIX.length());
+        }
+        if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            if (jwtUtil.validate(token)) {
+                Claims claims = jwtUtil.parseToken(token);
+                String username = claims.getSubject();
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                UsernamePasswordAuthenticationToken auth =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+}
+  
+
+
+
+
+
+
+
+
+package com.water.controller;
+
+import com.water.common.Result;
+import com.water.dto.LoginReq;
+import com.water.dto.LoginVO;
+import com.water.vo.UserInfoVO;
+import com.water.service.AuthService;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/login")
+    public Result<LoginVO> login(@RequestBody LoginReq req) {
+        return Result.ok(authService.login(req));
+    }
+
+    @GetMapping("/me")
+    public Result<UserInfoVO> me() {
+        return Result.ok(authService.me());
+    }
+
+    @PostMapping("/logout")
+    public Result<Void> logout() {
+        authService.logout();
+        return Result.ok();
+    }
+
+    @PutMapping("/password")
+    public Result<Void> changePassword(@RequestBody Map<String, String> body) {
+        authService.changePassword(body.getOrDefault("oldPassword", ""), body.getOrDefault("newPassword", ""));
+        return Result.ok();
+    }
+}
+=== CommonConstants.java ===
+package com.water.common.constants;
+
+/**
+ * 通用常量
+ */
+public interface CommonConstants {
+
+    String TOKEN_HEADER = "Authorization";
+    String TOKEN_PREFIX = "Bearer ";
+
+    /** 角色编码 */
+    String ROLE_ADMIN = "ADMIN";
+    String ROLE_OPERATOR = "OPERATOR";
+    String ROLE_VIEWER = "VIEWER";
+
+    /** 设备状态 */
+    int DEVICE_ONLINE = 1;
+    int DEVICE_OFFLINE = 0;
+    int DEVICE_FAULT = 2;
+    int DEVICE_STOP = 3;
+
+    /** 告警状态 */
+    int ALARM_UNHANDLED = 0;
+    int ALARM_HANDLING = 1;
+    int ALARM_HANDLED = 2;
+    int ALARM_IGNORED = 3;
+
+    /** WebSocket 消息类型 */
+    String WS_TYPE_REALTIME = "realtime";
+    String WS_TYPE_ALARM = "alarm";
+    String WS_TYPE_HEARTBEAT = "heartbeat";
+
+    String SYSTEM_ADMIN = "admin";
+}
+
+
+
+
+
+import lombok.Data;
+
+@Data
+public class LoginReq {
+    private String username;
+    private String password;
+}===
+package com.water.dto;
+
+import com.water.vo.MenuNodeVO;
+import com.water.vo.UserInfoVO;
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class LoginVO {
+    private String token;
+    private UserInfoVO user;
+    private List<MenuNodeVO> menus;
