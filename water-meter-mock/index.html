@@ -393,9 +393,9 @@ async function doSend(payload, tag, action){
       body: JSON.stringify({ baseURL, token, payload }),
     });
     const j = await res.json();
-    markLogLast(res.ok, res.status, j.data);
+    markLogLast(!!j.ok, j.code, j.data);
     if (res.ok && j.ok) updateConn(true); else updateConn(false);
-    return { ok: res.ok && j.ok, status: res.status, data: j.data };
+    return { ok: !!j.ok, status: j.code, data: j.data, message: j.message };
   } catch (e) {
     markLogLast(false, null, String(e && e.message || e));
     updateConn(false);
@@ -551,11 +551,11 @@ $('btnLogin').addEventListener('click', async () => {
       body: JSON.stringify({ baseURL, username: $('inUser').value, password: $('inPass').value }),
     });
     const j = await res.json();
-    if (res.ok && j.ok && j.data && j.data.token){
-      localStorage.setItem('wm_token', j.data.token);
+    if (res.ok && j.ok && j.token){
+      localStorage.setItem('wm_token', j.token);
       updateConn(true); toast('登录成功');
     } else {
-      const msg = (j.data && (j.data.message || j.data.msg)) || ('HTTP '+res.status);
+      const msg = j.message || (j.data && (j.data.message || j.data.msg)) || ('HTTP '+res.status);
       updateConn(false); toast('登录失败：'+ msg, true);
     }
   } catch(e){
@@ -580,12 +580,16 @@ $('btnLoadDevices').addEventListener('click', async () => {
   try {
     const res = await fetch('/api/mock/devices?baseURL='+encodeURIComponent(baseURL)+'&token='+encodeURIComponent(token)+'&devicesPath='+encodeURIComponent(devPath));
     const j = await res.json();
+    if (!j.ok){
+      toast('拉取设备失败：'+(j.message || 'HTTP '+res.status), true);
+      return;
+    }
     const list = extractDevices(j.data);
     if (list.length){
       $('devIds').value = list.join(', ');
       toast('已填充设备号：'+list.join(', '));
     } else {
-      toast('未解析到设备号（HTTP '+res.status+'），请手动填写', true);
+      toast('接口正常但未解析到设备号（HTTP '+j.code+'），请手动填写设备 ID', true);
     }
   } catch(e){ toast('加载失败：'+e.message, true); }
   finally { btn.disabled = false; btn.textContent = '拉取设备列表'; }
