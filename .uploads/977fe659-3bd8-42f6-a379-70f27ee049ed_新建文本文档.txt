@@ -1,0 +1,115 @@
+POST /api/monitor/data
+权限: ADMIN / OPERATOR / device:manage
+请求体: MonitorWriteReq (JSON)
+
+MonitorWriteReq 字段结构:
+
+
+字段
+
+
+类型
+
+
+说明
+
+
+deviceId
+
+
+Long
+
+
+设备 ID
+
+
+dataTime
+
+
+LocalDateTime
+
+
+数据时间 (如 "2026-09-01T10:00:00")
+
+
+pressure
+
+
+BigDecimal
+
+
+压力 (MPa)
+
+
+flow
+
+
+BigDecimal
+
+
+流量 (m3/h)
+
+
+ph
+
+
+BigDecimal
+
+
+pH 值
+
+
+turbidity
+
+
+BigDecimal
+
+
+浊度 (NTU)
+
+
+residualCl
+
+
+BigDecimal
+
+
+余氯 (mg/L)
+
+
+temperature
+
+
+BigDecimal
+
+
+温度 (°C)
+
+
+level
+
+
+BigDecimal
+
+
+液位 (m)
+
+
+GET /api/monitor/realtime
+权限: ADMIN / OPERATOR / VIEWER / monitor:view
+响应: List<RealtimeVO>
+
+GET /api/monitor/trend?deviceId=&type=&startTime=&endTime=&pointCount=
+权限: ADMIN / OPERATOR / VIEWER / monitor:view
+响应: List<TrendPointVO>
+
+GET /api/monitor/stat
+权限: ADMIN / OPERATOR / VIEWER / monitor:view
+响应: Map<String, Object>
+
+所有接口（除 /api/auth/login 和 /ws/**）都需要 JWT 鉴权。
+
+Token 通过 Header 传递：Authorization: Bearer <token>
+先调用 POST /api/auth/login 获取 Token
+登录请求体：{"username": "admin", "password": "123456"}
+默认账号：admin / 123456
