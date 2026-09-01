@@ -110,8 +110,18 @@ const server = http.createServer((req, res) => {
       proxy('/api/auth/login', { baseURL: body.baseURL }, {
         username: body.username, password: body.password,
       }, (err, code, data) => {
-        if (err) return sendJson(res, 502, { ok: false, message: detailErr('登录', body.baseURL, err), code: null });
-        sendJson(res, code, { ok: String(code).startsWith('2') && !/error/i.test((data || '').slice(0, 200)), code, data: tryJson(data) });
+        if (err) return sendJson(res, 502, { ok: false, message: detailErr('登录', body.baseURL, err), code: null, token: null });
+        const bodyData = tryJson(data);
+        // 兼容 {code,message,data:{token}} 或 {token} 等结构
+        let token = null, bizCode = null;
+        if (bodyData && typeof bodyData === 'object') {
+          bizCode = bodyData.code;
+          const inner = bodyData.data;
+          if (inner && inner.token) token = inner.token;
+          else if (bodyData.token) token = bodyData.token;
+        }
+        const ok = String(code).startsWith('2') && (bizCode === 200 || bizCode === undefined || bizCode == null) && !!token;
+        sendJson(res, 200, { ok, code: 200, token, message: (bodyData && bodyData.message) || (ok ? 'success' : '登录失败'), data: bodyData });
       });
     });
   }
@@ -125,7 +135,9 @@ const server = http.createServer((req, res) => {
         headers: { Authorization: 'Bearer ' + (body.token || '').trim() },
       }, body.payload, (err, code, data) => {
         if (err) return sendJson(res, 502, { ok: false, message: detailErr('上报', body.baseURL, err), code: null });
-        sendJson(res, code, { ok: String(code).startsWith('2'), code, data: tryJson(data) });
+        const bodyData = tryJson(data);
+        const ok = String(code).startsWith('2') && (bodyData && bodyData.code != null ? bodyData.code === 200 : true);
+        sendJson(res, 200, { ok, code, message: (bodyData && bodyData.message) || (ok ? 'success' : '失败'), data: bodyData });
       });
     });
   }
@@ -139,8 +151,10 @@ const server = http.createServer((req, res) => {
       baseURL, method: 'GET',
       headers: { Authorization: 'Bearer ' + (token || '').trim() },
     }, null, (err, code, data) => {
-      if (err) return sendJson(res, 502, { ok: false, message: err.message, code: null });
-      sendJson(res, code, { ok: String(code).startsWith('2'), code, data: tryJson(data) });
+      if (err) return sendJson(res, 502, { ok: false, message: detailErr('设备列表', baseURL, err), code: null });
+      const bodyData = tryJson(data);
+      const ok = String(code).startsWith('2') && (bodyData && bodyData.code != null ? bodyData.code === 200 : true);
+      sendJson(res, 200, { ok, code, message: (bodyData && bodyData.message) || (ok ? 'success' : '拉取失败'), data: bodyData });
     });
     return;
   }
